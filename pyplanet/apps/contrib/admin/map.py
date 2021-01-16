@@ -192,18 +192,44 @@ class MapAdmin:
 	async def read_map_list(self, player, data, **kwargs):
 		file_name = data.file
 		file_path = 'MatchSettings/{}'.format(file_name)
-
+				
 		try:
 			await self.instance.map_manager.load_matchsettings(file_path)
 			message = '$ff0Match Settings has been loaded from: {}'.format(file_path)
 		except:
 			message = '$ff0Could not load match settings! Does the file exists? Check log for details.'
+		
+		try:	
+			map_dir = await self.instance.gbx('GetMapsDirectory')
+			tree = ET.parse(map_dir+file_path)
+			root = tree.getroot()
+			for entry in root.findall('mode_script_settings'):
+				settings = entry.findall('setting')
+				for setting in settings:
+					settings_modescript_name = setting.attrib['name']
+					settings_modescript_type = setting.attrib['type']
+					if settings_modescript_type == 'boolean':
+						real_type = bool
+					elif settings_modescript_type == 'integer':
+						real_type = int
+					elif settings_modescript_type == 'double':
+						real_type = float
+					elif settings_modescript_type == 'text':
+						real_type = str
 
+					settings_modescript_value = setting.attrib['value']
+					#print(settings_modescript_name)
+				await self.instance.mode_manager.update_next_settings({settings_modescript_name : real_type(settings_modescript_value)})
+				message_mode_scriptsettings = '$ff0Mode Script Settings has been loaded from: {}'.format(file_path)
+		except:
+			message_mode_scriptsettings = '$ff0Could not load match settings! Does the file exists? Check log for details.'
+			
 		# Send message + reload all maps in memory.
 		await asyncio.gather(
-			self.instance.chat(message, player),
-			self.instance.map_manager.update_list(full_update=True)
-		)
+				self.instance.chat(message, player),
+				self.instance.chat(message_mode_scriptsettings, player),
+				self.instance.map_manager.update_list(full_update=True)
+				)
 
 	async def shuffle(self, player, data, **kwargs):
 		# First, retrieve the current maplist.
