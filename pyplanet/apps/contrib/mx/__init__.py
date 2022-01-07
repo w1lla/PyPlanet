@@ -3,6 +3,7 @@ import os
 
 from pyplanet.apps.config import AppConfig
 from pyplanet.apps.contrib.mx.api import MXApi
+from pyplanet.apps.core.maniaplanet import callbacks as mp_signals
 from pyplanet.apps.contrib.mx.exceptions import MXMapNotFound, MXInvalidResponse
 from pyplanet.apps.contrib.mx.view import MxSearchListView, MxPacksListView, MxStatusListView
 from pyplanet.contrib.command import Command
@@ -40,6 +41,7 @@ class MX(AppConfig):  # pragma: no cover
 		await self.api.create_session()
 
 	async def on_start(self):
+		self.context.signals.listen(mp_signals.flow.podium_start, self.podium_start)
 		await self.instance.permission_manager.register(
 			'add_remote', 'Add map from remote source (such as MX)', app=self, min_level=2)
 		await self.context.setting.register(
@@ -59,7 +61,8 @@ class MX(AppConfig):  # pragma: no cover
 					description='Add map from ManiaExchange to the maplist.').add_param(
 				'maps', nargs='*', type=str, required=True, help='MX ID(s) of maps to add.'),
 			# new mx command random (Adding) Random Maps from MX
-			Command(command='random', namespace=self.namespace, target=self.random_mx_map, perms='mx:add_remote', admin=True, description='Get Random Maps on ManiaExchange/TrackmaniaExchange.').add_param('', nargs='*', type=str, required=False, help='Random maps Adding.'),
+			Command(command='random', namespace=self.namespace, target=self.random_mx_map, perms='mx:add_remote',
+					admin=True, description='Get Random Maps on ManiaExchange/TrackmaniaExchange.'),
 			# new mx namespace
 			Command(command='search', aliases=['list'], namespace=self.namespace, target=self.search_mx_map, perms='mx:add_remote',
 					admin=True, description='Search for maps on ManiaExchange/TrackmaniaExchange.'),
@@ -76,6 +79,13 @@ class MX(AppConfig):  # pragma: no cover
 					admin=True, description='Add mappack from ManiaExchange/TrackmaniaExchange to the maplist.')
 				.add_param('pack', nargs='*', type=str, required=True, help='MX/TMX ID(s) of mappacks to add.'),
 		)
+	
+	async def podium_start(self, **kwargs):
+			current_played_map = self.instance.map_manager.current_map
+			map_award = await self.api.award_mx_map(current_played_map)
+			print(map_award)
+			message = 'Please award 🏆$l[{map_awarding}]{current_played}$l🏆 on MX if you liked it!'.format(map_awarding=map_award,current_played=current_played_map.name)
+			await self.instance.chat(message)
 		
 	async def random_mx_map(self, player, data, **kwargs):
 		map_random_id = await self.api.mx_random()
@@ -84,9 +94,13 @@ class MX(AppConfig):  # pragma: no cover
 			'//{} add maps'.format(self.namespace),
 			str(map_random_id)
 		)
-	
+
 	async def mx_info(self, player, data, **kwargs):
-		map_info = await self.api.map_info(self.instance.map_manager.current_map.uid)
+		try:
+			map_info = await self.api.map_info(self.instance.map_manager.current_map.uid)
+		except Exception as e:
+			map_info = list()
+			logger.error('Could not retrieve map info from MX/TM API: {}'.format(str(e)))
 		if len(map_info) != 1:
 			message = '$f00Map could not be found on MX!'
 			await self.instance.chat(message, player)
@@ -164,7 +178,7 @@ class MX(AppConfig):  # pragma: no cover
 
 		# Prepare and fetch information about the maps from MX.
 		mx_ids = data.maps
-		
+
 		try:
 			infos = await self.api.map_info(*mx_ids)
 			if len(infos) == 0:
